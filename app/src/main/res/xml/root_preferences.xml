@@ -1,6 +1,21 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory app:title="DataWedge"/>
-
-    <PreferenceCategory app:title="Security"/>
+    <PreferenceCategory
+        app:title="General">
+        <PreferenceScreen
+            android:title="@string/about_title"
+            android:summary="@string/about_summary">
+                <intent android:action="about"/>
+        </PreferenceScreen>
+    </PreferenceCategory>
+    <PreferenceCategory
+        app:title="Security">
+        <SwitchPreference
+            android:defaultValue="true"
+            android:key="cookies_exit"
+            android:summary="@string/cookies_exit_summary"
+            android:summaryOff="@string/cookies_exit_off"
+            android:summaryOn="@string/cookies_exit_on"
+            android:title="@string/cookies_exit_title" />
+    </PreferenceCategory>
 </PreferenceScreen>
