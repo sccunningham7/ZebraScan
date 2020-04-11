@@ -25,6 +25,16 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/toolbar">
 
+        <TextView
+            android:id="@+id/errorView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="@string/datawedge_missing"
+            android:textAlignment="center"
+            android:textAppearance="@style/TextAppearance.AppCompat.Display1"
+            android:visibility="invisible" />
+
         <ProgressBar
             android:id="@+id/progressBar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -42,7 +52,9 @@
             android:layout_height="match_parent"
             android:elevation="0dp"
             android:fadeScrollbars="true"
-            android:keepScreenOn="true" />
+            android:keepScreenOn="true" >
+
+        </WebView>
     </FrameLayout>
 
     <LinearLayout
