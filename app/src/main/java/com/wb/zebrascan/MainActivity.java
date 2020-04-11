@@ -2,23 +2,28 @@ package com.wb.zebrascan;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.widget.Toolbar;
@@ -34,7 +39,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String EXTRA_PROFILENAME = "ZebraScan";
 
     // DataWedge Extras
-    private static final String EXTRA_GET_VERSION_INFO = "com.symbol.datawedge.api.GET_VERSION_INFO";
     private static final String EXTRA_CREATE_PROFILE = "com.symbol.datawedge.api.CREATE_PROFILE";
     private static final String EXTRA_KEY_APPLICATION_NAME = "com.symbol.datawedge.api.APPLICATION_NAME";
     private static final String EXTRA_KEY_NOTIFICATION_TYPE = "com.symbol.datawedge.api.NOTIFICATION_TYPE";
@@ -55,8 +59,6 @@ public class MainActivity extends AppCompatActivity {
     // Scanner control
     private static final String EXTRA_SWITCH_SCANNER_EX = "com.symbol.datawedge.api.SWITCH_SCANNER_EX";
 
-    private static final String EXTRA_EMPTY = "";
-
     private static final String EXTRA_RESULT_GET_VERSION_INFO = "com.symbol.datawedge.api.RESULT_GET_VERSION_INFO";
     private static final String EXTRA_RESULT = "RESULT";
     private static final String EXTRA_RESULT_INFO = "RESULT_INFO";
@@ -70,41 +72,54 @@ public class MainActivity extends AppCompatActivity {
     // private variables
     private Boolean bRequestSendResult = false;
     final String LOG_TAG = "ZebraScan";
-    private SharedPreferences sharedPreferences;
     private static Boolean CameraSelectedScanner = false;
 
+    @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         // Init settings
-        sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+
+        // If cookies set to wipe, wipe them here
+        if (sharedPreferences.getBoolean("cookies_exit", true)) {
+            CookieManager.getInstance().removeAllCookies(null);
+            CookieManager.getInstance().flush();
+        }
 
         // Set toolbar up
-        final Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        final Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        // Set webview up
-        final WebView mainWebView = (WebView) findViewById(R.id.webView);
-        final ProgressBar progressBar = (ProgressBar) findViewById(R.id.progressBar);
-        mainWebView.setWebViewClient(new WebViewClient());
-        mainWebView.setWebChromeClient(new WebChromeClient(){
-            // Progress bar mapping
-            public void onProgressChanged(WebView view, int progress) {
-                if (progress < 100 && progressBar.getVisibility() == ProgressBar.GONE) {
-                    progressBar.setVisibility(ProgressBar.VISIBLE);
-                }
-                progressBar.setProgress(progress);
-                if (progress == 100) {
-                    progressBar.setVisibility(ProgressBar.GONE);
-                }
-            }
-        });
+        final WebView mainWebView = findViewById(R.id.webView);
+        final TextView errorView = findViewById(R.id.errorView);
 
-        // Load RocketRez and enable JS
-        mainWebView.loadUrl("https://secure.rocket-rez.com/rocketscan/");
-        WebSettings webSettings = mainWebView.getSettings();
-        webSettings.setJavaScriptEnabled(true);
+        if (!isDataWedgeInstalled(getPackageManager())) {
+            mainWebView.setVisibility(View.INVISIBLE);
+            errorView.setVisibility(View.VISIBLE);
+        } else {
+            // Set webview up
+            final ProgressBar progressBar = findViewById(R.id.progressBar);
+            mainWebView.setWebViewClient(new WebViewClient());
+            mainWebView.setWebChromeClient(new WebChromeClient() {
+                // Progress bar mapping
+                public void onProgressChanged(WebView view, int progress) {
+                    if (progress < 100 && progressBar.getVisibility() == ProgressBar.GONE) {
+                        progressBar.setVisibility(ProgressBar.VISIBLE);
+                    }
+                    progressBar.setProgress(progress);
+                    if (progress == 100) {
+                        progressBar.setVisibility(ProgressBar.GONE);
+                    }
+                }
+            });
+
+            // Load RocketRez and enable JS
+            mainWebView.loadUrl("https://secure.rocket-rez.com/rocketscan/");
+            WebSettings webSettings = mainWebView.getSettings();
+            webSettings.setJavaScriptEnabled(true);
+        }
 
         // Create DataWedge profile
         CreateProfile();
@@ -114,13 +129,25 @@ public class MainActivity extends AppCompatActivity {
         Bundle b = new Bundle();
         b.putString(EXTRA_KEY_APPLICATION_NAME, getPackageName());
         b.putString(EXTRA_KEY_NOTIFICATION_TYPE, "SCANNER_STATUS");     // register for changes in scanner status
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_REGISTER_NOTIFICATION, b);
+        sendDataWedgeIntentWithExtra(EXTRA_REGISTER_NOTIFICATION, b);
 
         registerReceivers();
+    }
 
-        // Get DataWedge version
-        // Use GET_VERSION_INFO: http://techdocs.zebra.com/datawedge/latest/guide/api/getversioninfo/
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_GET_VERSION_INFO, EXTRA_EMPTY);    // must be called after registering BroadcastReceiver
+    /**
+     * Checks if datawedge is installed using package name
+     * @param packageManager The packagemanger for the calling context.
+     * @return true if installed, false otherwise
+     */
+    private boolean isDataWedgeInstalled(PackageManager packageManager) {
+        try {
+            PackageInfo v = packageManager.getPackageInfo("com.symbol.datawedge", 0);
+            Log.i(LOG_TAG, "DataWedge is installed. Version found: " + v.versionName );
+            return true;
+        } catch (PackageManager.NameNotFoundException ex) {
+            Log.i(LOG_TAG, "DataWedge is not installed!");
+            return false;
+        }
     }
 
     /**
@@ -177,11 +204,10 @@ public class MainActivity extends AppCompatActivity {
      * @author Zebra
      */
     public void CreateProfile () {
-        String profileName = EXTRA_PROFILENAME;
 
         // Send DataWedge intent with extra to create profile
         // Use CREATE_PROFILE: http://techdocs.zebra.com/datawedge/latest/guide/api/createprofile/
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_CREATE_PROFILE, profileName);
+        sendDataWedgeIntentWithExtra(EXTRA_CREATE_PROFILE, EXTRA_PROFILENAME);
 
         // Configure created profile to apply to this app
         Bundle profileConfig = new Bundle();
@@ -194,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
         barcodeConfig.putString("PLUGIN_NAME", "BARCODE");
         barcodeConfig.putString("RESET_CONFIG", "true"); //  This is the default
         Bundle autoBarcodeProps = new Bundle();
-        autoBarcodeProps.putString("scanner_selection_by_identifier", "AUTO");
+        autoBarcodeProps.putString("configure_all_scanners", "true");
         autoBarcodeProps.putString("decoding_led_feedback", "true");
         autoBarcodeProps.putString("decode_haptic_feedback", "true");
         barcodeConfig.putBundle("PARAM_LIST", autoBarcodeProps);
@@ -209,7 +235,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Apply configs
         // Use SET_CONFIG: http://techdocs.zebra.com/datawedge/latest/guide/api/setconfig/
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SET_CONFIG, profileConfig);
+        sendDataWedgeIntentWithExtra(EXTRA_SET_CONFIG, profileConfig);
 
         // Configure intent output for captured data to be sent to this app
         Bundle intentConfig = new Bundle();
@@ -221,9 +247,9 @@ public class MainActivity extends AppCompatActivity {
         intentProps.putString("intent_delivery", "2");
         intentConfig.putBundle("PARAM_LIST", intentProps);
         profileConfig.putBundle("PLUGIN_CONFIG", intentConfig);
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SET_CONFIG, profileConfig);
+        sendDataWedgeIntentWithExtra(EXTRA_SET_CONFIG, profileConfig);
 
-        Log.d(LOG_TAG, "Created profile"); }
+        Log.i(LOG_TAG, "Created profile"); }
 
     /**
      * Toggle soft scan trigger from UI onClick() event
@@ -232,25 +258,25 @@ public class MainActivity extends AppCompatActivity {
      * @author Zebra
      */
     public void ToggleSoftScanTrigger (View view){
-        sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SOFT_SCAN_TRIGGER, "TOGGLE_SCANNING");
+        sendDataWedgeIntentWithExtra(EXTRA_SOFT_SCAN_TRIGGER, "TOGGLE_SCANNING");
     }
 
     /**
-     *
-     * @param view
+     * Toggles the selected scanner between the built-in and camera
+     * @author Chandler Cunningham
      */
     public void ToggleSelectedScanner(View view) {
         ImageButton imageButton = findViewById(R.id.toggleButton);
         if (CameraSelectedScanner) {
             imageButton.setImageResource(R.drawable.ic_barcode);
-            sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SWITCH_SCANNER_EX, "AUTO");
+            sendDataWedgeIntentWithExtra(EXTRA_SWITCH_SCANNER_EX, "AUTO");
             CameraSelectedScanner = false;
             Toast toast = Toast.makeText(getApplicationContext(), "Switched to Scanner", Toast.LENGTH_SHORT);
             toast.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL, 0 ,50);
             toast.show();
         } else {
             imageButton.setImageResource(R.drawable.ic_camera_alt_black_24dp);
-            sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SWITCH_SCANNER_EX, "INTERNAL_CAMERA");
+            sendDataWedgeIntentWithExtra(EXTRA_SWITCH_SCANNER_EX, "INTERNAL_CAMERA");
             CameraSelectedScanner = true;
             Toast toast = Toast.makeText(getApplicationContext(), "Switched to Camera", Toast.LENGTH_SHORT);
             toast.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL, 0 ,50);
@@ -304,18 +330,18 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            Bundle b = intent.getExtras();
-
             Log.d(LOG_TAG, "DataWedge Action:" + action);
 
             // Get DataWedge version info
             if (intent.hasExtra(EXTRA_RESULT_GET_VERSION_INFO))
             {
                 Bundle versionInfo = intent.getBundleExtra(EXTRA_RESULT_GET_VERSION_INFO);
+                assert versionInfo != null;
                 String DWVersion = versionInfo.getString("DATAWEDGE");
                 Log.i(LOG_TAG, "DataWedge Version: " + DWVersion);
             }
 
+            assert action != null;
             if (action.equals(getResources().getString(R.string.activity_intent_filter_action)))
             {
                 //  Received a barcode scan
@@ -336,20 +362,21 @@ public class MainActivity extends AppCompatActivity {
                 {
                     String command = intent.getStringExtra(EXTRA_COMMAND);
                     String result = intent.getStringExtra(EXTRA_RESULT);
-                    String info = "";
+                    StringBuilder info = new StringBuilder();
 
                     if (intent.hasExtra(EXTRA_RESULT_INFO))
                     {
                         Bundle result_info = intent.getBundleExtra(EXTRA_RESULT_INFO);
+                        assert result_info != null;
                         Set<String> keys = result_info.keySet();
                         for (String key : keys) {
                             Object object = result_info.get(key);
                             if (object instanceof String) {
-                                info += key + ": " + object + "\n";
+                                info.append(key).append(": ").append(object).append("\n");
                             } else if (object instanceof String[]) {
                                 String[] codes = (String[]) object;
                                 for (String code : codes) {
-                                    info += key + ": " + code + "\n";
+                                    info.append(key).append(": ").append(code).append("\n");
                                 }
                             }
                         }
@@ -368,6 +395,7 @@ public class MainActivity extends AppCompatActivity {
                 if (intent.hasExtra(EXTRA_RESULT_NOTIFICATION))
                 {
                     Bundle extras = intent.getBundleExtra(EXTRA_RESULT_NOTIFICATION);
+                    assert extras != null;
                     String notificationType = extras.getString(EXTRA_RESULT_NOTIFICATION_TYPE);
                     if (notificationType != null)
                     {
@@ -406,9 +434,9 @@ public class MainActivity extends AppCompatActivity {
     {
         // store decoded data
         String decodedData = initiatingIntent.getStringExtra(getResources().getString(R.string.datawedge_intent_key_data));
-        // store decoder type
-        // String decodedLabelType = initiatingIntent.getStringExtra(getResources().getString(R.string.datawedge_intent_key_label_type));
         final WebView mainWebView = findViewById(R.id.webView);
+        // Set barcode date to window event
+        //TODO: Set this event trigger to one specific to Android in RocketRez
         mainWebView.loadUrl("javascript:window.onScanAppBarCodeData(\"" + decodedData + "\",\"\",\"\")");
     }
 
@@ -416,14 +444,13 @@ public class MainActivity extends AppCompatActivity {
      * Sends intent to DataWedge with extra bundle
      * From Zebra's DataCapture1 demo application
      * @author Zebra
-     * @param action action to perform
      * @param extraKey extra key
      * @param extras extras as bundle
      */
-    private void sendDataWedgeIntentWithExtra(String action, String extraKey, Bundle extras)
+    private void sendDataWedgeIntentWithExtra(String extraKey, Bundle extras)
     {
         Intent dwIntent = new Intent();
-        dwIntent.setAction(action);
+        dwIntent.setAction(MainActivity.ACTION_DATAWEDGE);
         dwIntent.putExtra(extraKey, extras);
         if (bRequestSendResult)
             dwIntent.putExtra(EXTRA_SEND_RESULT, "true");
@@ -434,14 +461,13 @@ public class MainActivity extends AppCompatActivity {
      * Sends intent to DataWedge with extra string
      * From Zebra's DataCapture1 demo application
      * @author Zebra
-     * @param action action to perform
      * @param extraKey extra key
      * @param extraValue extra as string
      */
-    private void sendDataWedgeIntentWithExtra(String action, String extraKey, String extraValue)
+    private void sendDataWedgeIntentWithExtra(String extraKey, String extraValue)
     {
         Intent dwIntent = new Intent();
-        dwIntent.setAction(action);
+        dwIntent.setAction(MainActivity.ACTION_DATAWEDGE);
         dwIntent.putExtra(extraKey, extraValue);
         if (bRequestSendResult)
             dwIntent.putExtra(EXTRA_SEND_RESULT, "true");
@@ -457,10 +483,10 @@ public class MainActivity extends AppCompatActivity {
         ImageButton imageButton = findViewById(R.id.toggleButton);
         if (CameraSelectedScanner) {
             imageButton.setImageResource(R.drawable.ic_camera_alt_black_24dp);
-            sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SWITCH_SCANNER_EX, "INTERNAL_CAMERA");
+            sendDataWedgeIntentWithExtra(EXTRA_SWITCH_SCANNER_EX, "INTERNAL_CAMERA");
         } else {
             imageButton.setImageResource(R.drawable.ic_barcode);
-            sendDataWedgeIntentWithExtra(ACTION_DATAWEDGE, EXTRA_SWITCH_SCANNER_EX, "AUTO");
+            sendDataWedgeIntentWithExtra(EXTRA_SWITCH_SCANNER_EX, "AUTO");
         }
     }
 
